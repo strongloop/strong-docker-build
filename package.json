@@ -1,0 +1,31 @@
+{
+  "name": "strong-docker-build",
+  "version": "1.0.0",
+  "description": "Build a Docker image of an app run under strong-supervisor",
+  "main": "index.js",
+  "scripts": {
+    "lint": "eslint . && jscs .",
+    "test": "tap test/test-*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:strongloop/strong-docker-build.git"
+  },
+  "keywords": [
+    "strongloop",
+    "build",
+    "deploy",
+    "docker"
+  ],
+  "author": "StrongLoop <engineering@strongloop.com>",
+  "license": "StrongLoop",
+  "bugs": {
+    "url": "https://github.com/strongloop/strong-docker-build/issues"
+  },
+  "homepage": "https://github.com/strongloop/strong-docker-build",
+  "devDependencies": {
+    "eslint": "^0.18.0",
+    "jscs": "^1.12.0",
+    "tap": "^0.7.1"
+  }
+}
