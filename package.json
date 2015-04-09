@@ -8,7 +8,7 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint . && jscs .",
-    "test": "tap test/test-*"
+    "test": "tap --timeout 300 test/test-*"
   },
   "repository": {
     "type": "git",
