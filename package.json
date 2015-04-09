@@ -2,6 +2,9 @@
   "name": "strong-docker-build",
   "version": "1.0.0",
   "description": "Build a Docker image of an app run under strong-supervisor",
+  "bin": {
+    "sl-docker-build": "bin/sl-docker-build.js"
+  },
   "main": "index.js",
   "scripts": {
     "lint": "eslint . && jscs .",
@@ -27,5 +30,12 @@
     "eslint": "^0.18.0",
     "jscs": "^1.12.0",
     "tap": "^0.7.1"
+  },
+  "dependencies": {
+    "async": "^0.9.0",
+    "dockerode": "^2.1.1",
+    "fstream": "^1.0.4",
+    "fstream-npm": "^1.0.2",
+    "tar": "^2.0.0"
   }
 }
