@@ -8,6 +8,7 @@
   "main": "index.js",
   "scripts": {
     "lint": "eslint . && jscs .",
+    "pretest": "docker pull node > /dev/null && docker pull node:slim > /dev/null",
     "test": "tap --timeout 300 test/test-*"
   },
   "repository": {

@@ -15,6 +15,11 @@ tap.test('build image', {timeout: 60000}, function(t) {
   });
 });
 
+tap.test('let docker settle', function(t) {
+  // Let the disk settle to ensure the image we just created is fully available.
+  setTimeout(t.end.bind(t), 500);
+});
+
 tap.test('inspect image', function(t) {
   docker.getImage('strongloop/strong-app:slim').inspect(function(err, image) {
     t.ifError(err, 'Image should be inspectable');
