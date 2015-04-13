@@ -24,7 +24,7 @@ tap.test('inspect image', function(t) {
     var expectedEntryPoint = ['/usr/local/bin/sl-run', '--control', '8700'];
     t.equivalent(cfg.Entrypoint, expectedEntryPoint, 'Runs sl-run');
     t.equal(cfg.WorkingDir, '/app', 'Runs from /app');
-    t.assert(size < 200 * 1024 * 1024, 'Image is less than 200MB');
+    t.assert(size < 300 * 1024 * 1024, 'Image is less than 300MB');
     t.end();
   });
 });
