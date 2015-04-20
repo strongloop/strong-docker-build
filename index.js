@@ -307,41 +307,45 @@ function buildDeployImage(opts, callback) {
   }
 
   function RUN(containerId, cmd) {
-    return simpleExec;
+    return async.apply(simpleExec, containerId, cmd);
+  }
 
-    function simpleExec(callback) {
-      var container = containers[containerId];
-      var execOpts = {
-        AttachStdout: true,
-        Cmd: cmd,
-      };
-      console.log('[%s]%s RUN %s', containerId,
-                  containerId === 'build' ? ' ' : '',
-                  cmd.join(' '));
-      container.exec(execOpts, function(err, exec) {
-        if (err) {
-          return callback(err);
-        }
-        exec.start({
-          stream: true,
-        }, function(err, stream) {
-          if (err) {
-            return callback(err);
-          }
-          docker.modem.demuxStream(stream, through(dot), process.stdout);
-          stream.on('end', function() {
-            if (dot.written) {
-              console.log('done');
-            }
-          });
-          stream.on('end', callback);
-          stream.on('error', callback);
-          function dot() {
-            dot.written = true;
-            process.stdout.write('.');
-          }
-        });
-      });
+  function simpleExec(containerId, cmd, callback) {
+    var execOpts = {
+      AttachStdout: true,
+      Cmd: cmd,
+    };
+    console.log('[%s]%s RUN %s', containerId,
+                containerId === 'build' ? ' ' : '',
+                cmd.join(' '));
+    return async.waterfall([
+      createExec,
+      startExec,
+      waitExec,
+    ], callback);
+
+    function createExec(next) {
+      containers[containerId].exec(execOpts, next);
+    }
+  }
+
+  function startExec(exec, next) {
+    exec.start({stream: true}, next);
+  }
+
+  function waitExec(stream, next) {
+    docker.modem.demuxStream(stream, through(dot), process.stdout);
+    stream.on('end', function() {
+      if (dot.written) {
+        console.log('done');
+      }
+    });
+    stream.on('end', next);
+    stream.on('error', next);
+
+    function dot() {
+      dot.written = true;
+      process.stdout.write('.');
     }
   }
 }
