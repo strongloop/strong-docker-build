@@ -35,7 +35,7 @@ function buildDeployImage(opts, callback) {
     createBuildContainer, startBuildContainer,
     createPreDeployContainer, commitPreDeployContainer,
     RUN('build', ['mkdir', '-p', '/app']),
-    addApp,
+    ADD('build', opts.appRoot, '/app'),
     RUN('build', ['useradd', '-m', 'strongloop']),
     RUN('build',
       ['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
@@ -79,26 +79,6 @@ function buildDeployImage(opts, callback) {
 
   function startBuildContainer(next) {
     containers.build.start(next);
-  }
-
-  function addApp(next) {
-    var cmd = ['tar', '-C', '/app', '--strip-components', '1', '-xvf-'];
-    var pkgStreamOpts = {
-      path: path.resolve(opts.appRoot),
-      type: 'Directory',
-      isDirectory: true,
-    };
-    console.log('[build]  ADD %s /app', opts.appRoot);
-    exec.streamIn(containers.build, cmd, function(err, stream) {
-      if (err) {
-        return next(err);
-      }
-      // mimic 'npm pack'
-      fnpm(pkgStreamOpts)
-        .pipe(tar.Pack())
-        .pipe(stream)
-        .on('end', next);
-    });
   }
 
   function copyBuildToDeploy(next) {
@@ -279,6 +259,30 @@ function buildDeployImage(opts, callback) {
                   containerId === 'build' ? ' ' : '',
                   cmd.join(' '));
       exec.simple(containers[containerId], cmd, next);
+    }
+  }
+
+  function ADD(containerId, src, dst) {
+    return addApp;
+
+    function addApp(next) {
+      var cmd = ['tar', '-C', dst, '--strip-components', '1', '-xvf-'];
+      var pkgStreamOpts = {
+        path: path.resolve(src),
+        type: 'Directory',
+        isDirectory: true,
+      };
+      console.log('[%s]  ADD %s /app', containerId, src);
+      exec.streamIn(containers[containerId], cmd, function(err, stream) {
+        if (err) {
+          return next(err);
+        }
+        // mimic 'npm pack'
+        fnpm(pkgStreamOpts)
+          .pipe(tar.Pack())
+          .pipe(stream)
+          .on('end', next);
+      });
     }
   }
 }
