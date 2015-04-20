@@ -17,11 +17,11 @@ tap.test('node base image', {timeout: 90000}, function(t) {
   });
 });
 
-tap.test('node:slim base image', {timeout: 90000}, function(t) {
-  docker.pull('node:slim', function(err, stream) {
-    t.ifError(err, 'start pull node:slim without error');
+tap.test('debian:jessie base image', {timeout: 90000}, function(t) {
+  docker.pull('debian:jessie', {repo: 'debian'}, function(err, stream) {
+    t.ifError(err, 'start pull debian:jessie without error');
     docker.modem.followProgress(stream, function(err) {
-      t.ifError(err, 'finish pull node:slim without error');
+      t.ifError(err, 'finish pull debian:jessie without error');
       t.end();
     });
   });
@@ -57,7 +57,7 @@ tap.test('inspect image', function(t) {
     var expectedEntryPoint = ['/usr/local/bin/sl-run', '--control', '8700'];
     t.equivalent(cfg.Entrypoint, expectedEntryPoint, 'Runs sl-run');
     t.equal(cfg.WorkingDir, '/app', 'Runs from /app');
-    t.assert(size < 200 * 1024 * 1024, 'Image is less than 200MB');
+    t.assert(size < 180 * 1024 * 1024, 'Image is less than 180MB');
     t.end();
   });
 });

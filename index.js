@@ -63,7 +63,7 @@ function buildDeployImage(opts, callback) {
   }
   function createPreDeployContainer(next) {
     var opts = {
-      Image: 'node:slim',
+      Image: 'debian:jessie',
       Entrypoint: ['useradd', '-m', 'strongloop'],
       Cmd: null,
     };
@@ -136,6 +136,7 @@ function buildDeployImage(opts, callback) {
       Cmd: [
         'tar', '-cf-', '-C', '/',
         'app',
+        'usr/local/bin/node',
         'usr/local/bin/sl-run',
         'usr/local/lib/node_modules/strong-supervisor',
       ],
@@ -255,8 +256,8 @@ function buildDeployImage(opts, callback) {
 
   function commitDeployContainer(next) {
     var imgConfig = {
-      // FROM node:slim
-      Image: 'node:slim',
+      // FROM debian:jessie
+      Image: 'debian:jessie',
       // USER strongloop
       User: 'strongloop',
       // WORKDIR /app
