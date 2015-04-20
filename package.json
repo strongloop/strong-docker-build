@@ -7,8 +7,7 @@
   },
   "main": "index.js",
   "scripts": {
-    "lint": "eslint . && jscs .",
-    "pretest": "docker pull node > /dev/null && docker pull node:slim > /dev/null",
+    "pretest": "eslint . && jscs .",
     "test": "tap --timeout 300 test/test-*"
   },
   "repository": {
@@ -35,8 +34,8 @@
   "dependencies": {
     "async": "^0.9.0",
     "dockerode": "^2.1.1",
-    "fstream": "^1.0.4",
     "fstream-npm": "^1.0.2",
-    "tar": "^2.0.0"
+    "tar": "^2.0.0",
+    "through": "^2.3.7"
   }
 }

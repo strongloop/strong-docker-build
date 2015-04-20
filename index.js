@@ -1,46 +1,346 @@
-var async = require('async');
-var build = require('./lib/build');
 var Docker = require('dockerode');
-var extract = require('./lib/extract');
+var async = require('async');
+var fnpm = require('fstream-npm');
+var path = require('path');
+var tar = require('tar');
+var through = require('through');
 
-exports.buildSlimImage = buildSlimImage;
+exports.buildDeployImage = buildDeployImage;
 
-function buildSlimImage(opts, callback) {
+function buildDeployImage(opts, callback) {
   var docker = opts.docker || new Docker();
-  opts.imgName = opts.imgName || 'strongloop/strong-app:slim';
+  var containers = {
+    build: null,
+    preDeploy: null,
+    deploy: null,
+  };
+  var app = require(path.resolve(opts.appRoot, 'package.json'));
+  var repo = opts.imgName && opts.imgName.split(':')[0]
+                          || ('sl-docker-run/' + app.name);
+  var tag = opts.imgName && opts.imgName.split(':')[1]
+                         || app.version;
+  var result = {
+    name: repo + ':' + tag,
+    id: null
+  };
+  var preDeployImg = null;
+  var env = [];
 
-  return async.waterfall([
-    // install strong-supervisor and app using a full-featured image
-    buildPackages,
-    // extract strong-supervisor and app, with their addons compiled
-    extractBuildArtifacts,
-    // create new image based on a slim image (no dev tools) using the
-    // pre-compiled strong-supervisor and app from the first image
-    composeImage,
-  ], callback);
-
-  function buildPackages(callback) {
-    console.log('Preparing binaries for container...');
-    var dockerfile = 'dockerfiles/build.Dockerfile';
-    var imgName = 'strongloop/builder:builder';
-    var payload = build.packageStream(opts.appRoot);
-    build.image(docker, dockerfile, imgName, payload, callback);
+  if (process.env.npm_config_registry) {
+    env.push('npm_config_registry=' + process.env.npm_config_registry);
   }
 
-  function extractBuildArtifacts(imgId, callback) {
-    console.log('extracting artifacts from ', imgId);
-    var paths = [
-      {tar: 'app.tar', path: '/app'},
-      {tar: 'global.tar', path: '/usr/local/'},
-    ];
-    extract.paths(docker, imgId, paths, callback);
+  return async.series([
+    createBuildContainer, startBuildContainer,
+    createPreDeployContainer, commitPreDeployContainer,
+    RUN('build', ['mkdir', '-p', '/app']),
+    addApp,
+    RUN('build', ['useradd', '-m', 'strongloop']),
+    RUN('build',
+      ['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
+    RUN('build', ['su', 'strongloop', '-c',
+                  'npm install -g --no-spin strong-supervisor']),
+    RUN('build', ['su', 'strongloop', '-c',
+                  'cd /app && npm install --no-spin --production']),
+    copyBuildToDeploy,
+    commitDeployContainer,
+    cleanup,
+  ], function(err) {
+    callback(err, result);
+  });
+
+  function createBuildContainer(next) {
+    var opts = {
+      Image: 'node:latest',
+      Cmd: ['sleep', '1000'],
+      Env: env,
+    };
+    console.log('[build]  FROM %s', opts.Image);
+    docker.createContainer(opts, function(err, c) {
+      containers.build = c;
+      next(err);
+    });
+  }
+  function createPreDeployContainer(next) {
+    var opts = {
+      Image: 'node:slim',
+      Entrypoint: ['useradd', '-m', 'strongloop'],
+      Cmd: null,
+    };
+    docker.createContainer(opts, function(err, c) {
+      if (err) {
+        return next(err);
+      }
+      containers.preDeploy = c;
+      c.start({}, next);
+    });
   }
 
-  function composeImage(files, callback) {
-    console.log('composing app container...');
-    var dockerfile = 'dockerfiles/compose.Dockerfile';
-    var imgName = opts.imgName;
-    var payload = build.listStream(files);
-    build.image(docker, dockerfile, imgName, payload, callback);
+  function startBuildContainer(next) {
+    containers.build.start(next);
+  }
+
+  function addApp(next) {
+    console.log('[build]  ADD %s /app', opts.appRoot);
+    var execOpts = {
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: true,
+      Cmd: ['tar', '-C', '/app', '--strip-components', '1', '-xvf-'],
+    };
+    containers.build.exec(execOpts, function(err, exec) {
+      if (err) {
+        return next(err);
+      }
+      exec.start({
+        AttachStdout: true,
+        AttachStderr: true,
+        AttachStdin: true,
+        stdin: true,
+      }, function(err, stream) {
+        if (err) {
+          return next(err);
+        }
+        var pkgStream = packageStream(opts.appRoot);
+        pkgStream.pipe(stream);
+        docker.modem.demuxStream(stream, through(dot), process.stdout);
+        stream.on('end', function() {
+          if (dot.written) {
+            console.log('done');
+          }
+          next();
+        });
+
+        function dot() {
+          dot.written = true;
+          process.stdout.write('.');
+        }
+      });
+    });
+
+    // mimic 'npm pack' as an fstream
+    function packageStream(pkgPath) {
+      var pkgStreamOpts = {
+        path: path.resolve(pkgPath),
+        type: 'Directory',
+        isDirectory: true,
+      };
+      return fnpm(pkgStreamOpts).pipe(tar.Pack());
+    }
+  }
+
+  function copyBuildToDeploy(next) {
+    var tarc = {
+      AttachStdout: true,
+      AttachStderr: true,
+      Cmd: [
+        'tar', '-cf-', '-C', '/',
+        'app',
+        'usr/local/bin/sl-run',
+        'usr/local/lib/node_modules/strong-supervisor',
+      ],
+    };
+    var tarx = {
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: true,
+      OpenStdin: true,
+      StdinOnce: true,
+      Entrypoint: ['tar', '-C', '/', '-xvpf-'],
+      Cmd: [],
+      Image: preDeployImg,
+    };
+    var tarXstream = null;
+    var tarCstream = null;
+    var bytes = 0;
+    var tarPipe = through(function encode(d) {
+      bytes += d.length;
+      this.queue(d);
+    }, function() {
+      console.log('[build]  bytes read: %d', bytes);
+      this.queue(null);
+    });
+    async.series([
+      createTarX,
+      attachTarX,
+      startTarX,
+      startTarC,
+      pipeStreams,
+      wait,
+    ], next);
+
+    function createTarX(next) {
+      docker.createContainer(tarx, function(err, c) {
+        containers.deploy = c;
+        next(err);
+      });
+    }
+
+    function attachTarX(next) {
+      var attachOpts = {
+        stdin: true,
+        stdout: true,
+        stderr: true,
+        stream: true,
+      };
+      containers.deploy.attach(attachOpts, function(err, stream) {
+        if (err) {
+          return next(err);
+        }
+        tarXstream = stream;
+        var count = 0;
+        var counter = through(function(d) {
+          count += d.toString().split('\n').length - 1;
+        }, function() {
+          console.log('[deploy] files written: %d', count);
+        });
+        console.log('[deploy] injecting build results');
+        docker.modem.demuxStream(tarXstream, counter, process.stdout);
+        tarXstream._output.on('end', function() {
+          counter.end();
+        });
+        next();
+      });
+    }
+
+    function startTarX(next) {
+      containers.deploy.start(tarx, next);
+    }
+
+    function startTarC(next) {
+      containers.build.exec(tarc, function(err, exec) {
+        if (err) {
+          return next(err);
+        }
+        exec.start(tarc, function(err, stream) {
+          if (err) {
+            return next(err);
+          }
+          console.log('[build]  extracting build results');
+          tarCstream = stream;
+          docker.modem.demuxStream(tarCstream, tarPipe, process.stdout);
+          next();
+        });
+      });
+    }
+
+    function pipeStreams(next) {
+      tarPipe.pipe(tarXstream.req);
+      tarCstream.on('end', function() {
+        tarPipe.end();
+      });
+      next();
+    }
+
+    function wait(next) {
+      containers.deploy.wait(next);
+    }
+  }
+
+  function commitPreDeployContainer(next) {
+    var imgConfig = {
+      comment: 'Built by strong-docker-build',
+      author: 'strong-docker-build@' + require('./package.json').version,
+    };
+    containers.preDeploy.wait(function(err) {
+      if (err) {
+        return next(err);
+      }
+      containers.preDeploy.commit(imgConfig, function(err, res) {
+        preDeployImg = res && res.Id;
+        next(err);
+      });
+    });
+  }
+
+  function commitDeployContainer(next) {
+    var imgConfig = {
+      // FROM node:slim
+      Image: 'node:slim',
+      // USER strongloop
+      User: 'strongloop',
+      // WORKDIR /app
+      WorkingDir: '/app',
+      // ENV PORT=3000
+      Env: [
+        'PORT=3000',
+        'STRONGLOOP_CLUSTER=CPU',
+      ],
+      // EXPOSE 8700 3000
+      ExposedPorts: {
+        '8700/tcp': {},
+        '3000/tcp': {},
+      },
+      // ENTRYPOINT ["/usr/local/bin/sl-run", "--control", "8700"]
+      Entrypoint: [
+        '/usr/local/bin/sl-run', '--control', '8700',
+      ],
+      repo: repo,
+      tag: tag,
+      comment: 'Built by strong-docker-build',
+      author: 'strong-docker-build@' + require('./package.json').version,
+    };
+    console.log('[deploy] commiting: %s as %s:%s',
+                containers.deploy.id.slice(0, 12),
+                imgConfig.repo, imgConfig.tag);
+    containers.deploy.commit(imgConfig, function(err, res) {
+      result.id = res && res.Id;
+      next(err);
+    });
+  }
+
+  function cleanup(next) {
+    async.series([
+      removeBuild, removeDeploy, removePreDeploy,
+    ], next);
+
+    function removeBuild(next) {
+      containers.build.remove({v: true, force: true}, next);
+    }
+    function removeDeploy(next) {
+      containers.deploy.remove({v: true, force: true}, next);
+    }
+    function removePreDeploy(next) {
+      containers.preDeploy.remove({v: true, force: true}, next);
+    }
+  }
+
+  function RUN(containerId, cmd) {
+    return simpleExec;
+
+    function simpleExec(callback) {
+      var container = containers[containerId];
+      var execOpts = {
+        AttachStdout: true,
+        Cmd: cmd,
+      };
+      console.log('[%s]%s RUN %s', containerId,
+                  containerId === 'build' ? ' ' : '',
+                  cmd.join(' '));
+      container.exec(execOpts, function(err, exec) {
+        if (err) {
+          return callback(err);
+        }
+        exec.start({
+          stream: true,
+        }, function(err, stream) {
+          if (err) {
+            return callback(err);
+          }
+          docker.modem.demuxStream(stream, through(dot), process.stdout);
+          stream.on('end', function() {
+            if (dot.written) {
+              console.log('done');
+            }
+          });
+          stream.on('end', callback);
+          stream.on('error', callback);
+          function dot() {
+            dot.written = true;
+            process.stdout.write('.');
+          }
+        });
+      });
+    }
   }
 }
