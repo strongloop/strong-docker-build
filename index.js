@@ -44,7 +44,7 @@ function buildDeployImage(opts, callback) {
                   'cd /app && npm install --no-spin --production']),
     copyBuildToDeploy,
     commitDeployContainer,
-    cleanup,
+    cleanupBuild, cleanupDeploy, cleanupPreDeploy,
   ], function(err) {
     callback(err, result);
   });
@@ -290,20 +290,16 @@ function buildDeployImage(opts, callback) {
     });
   }
 
-  function cleanup(next) {
-    async.series([
-      removeBuild, removeDeploy, removePreDeploy,
-    ], next);
+  function cleanupBuild(next) {
+    containers.build.remove({v: true, force: true}, next);
+  }
 
-    function removeBuild(next) {
-      containers.build.remove({v: true, force: true}, next);
-    }
-    function removeDeploy(next) {
-      containers.deploy.remove({v: true, force: true}, next);
-    }
-    function removePreDeploy(next) {
-      containers.preDeploy.remove({v: true, force: true}, next);
-    }
+  function cleanupDeploy(next) {
+    containers.deploy.remove({v: true, force: true}, next);
+  }
+
+  function cleanupPreDeploy(next) {
+    containers.preDeploy.remove({v: true, force: true}, next);
   }
 
   function RUN(containerId, cmd) {
