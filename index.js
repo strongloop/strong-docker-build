@@ -82,52 +82,23 @@ function buildDeployImage(opts, callback) {
   }
 
   function addApp(next) {
-    console.log('[build]  ADD %s /app', opts.appRoot);
-    var execOpts = {
-      AttachStdout: true,
-      AttachStderr: true,
-      AttachStdin: true,
-      Cmd: ['tar', '-C', '/app', '--strip-components', '1', '-xvf-'],
+    var cmd = ['tar', '-C', '/app', '--strip-components', '1', '-xvf-'];
+    var pkgStreamOpts = {
+      path: path.resolve(opts.appRoot),
+      type: 'Directory',
+      isDirectory: true,
     };
-    containers.build.exec(execOpts, function(err, exec) {
+    console.log('[build]  ADD %s /app', opts.appRoot);
+    exec.streamIn(containers.build, cmd, function(err, stream) {
       if (err) {
         return next(err);
       }
-      exec.start({
-        AttachStdout: true,
-        AttachStderr: true,
-        AttachStdin: true,
-        stdin: true,
-      }, function(err, stream) {
-        if (err) {
-          return next(err);
-        }
-        var pkgStream = packageStream(opts.appRoot);
-        pkgStream.pipe(stream);
-        docker.modem.demuxStream(stream, through(dot), process.stdout);
-        stream.on('end', function() {
-          if (dot.written) {
-            console.log('done');
-          }
-          next();
-        });
-
-        function dot() {
-          dot.written = true;
-          process.stdout.write('.');
-        }
-      });
+      // mimic 'npm pack'
+      fnpm(pkgStreamOpts)
+        .pipe(tar.Pack())
+        .pipe(stream)
+        .on('end', next);
     });
-
-    // mimic 'npm pack' as an fstream
-    function packageStream(pkgPath) {
-      var pkgStreamOpts = {
-        path: path.resolve(pkgPath),
-        type: 'Directory',
-        isDirectory: true,
-      };
-      return fnpm(pkgStreamOpts).pipe(tar.Pack());
-    }
   }
 
   function copyBuildToDeploy(next) {
