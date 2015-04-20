@@ -1,5 +1,6 @@
 var Docker = require('dockerode');
 var async = require('async');
+var exec = require('./lib/exec');
 var fnpm = require('fstream-npm');
 var path = require('path');
 var tar = require('tar');
@@ -300,45 +301,13 @@ function buildDeployImage(opts, callback) {
   }
 
   function RUN(containerId, cmd) {
-    return async.apply(simpleExec, containerId, cmd);
-  }
+    return runCmd;
 
-  function simpleExec(containerId, cmd, callback) {
-    var execOpts = {
-      AttachStdout: true,
-      Cmd: cmd,
-    };
-    console.log('[%s]%s RUN %s', containerId,
-                containerId === 'build' ? ' ' : '',
-                cmd.join(' '));
-    return async.waterfall([
-      createExec,
-      startExec,
-      waitExec,
-    ], callback);
-
-    function createExec(next) {
-      containers[containerId].exec(execOpts, next);
-    }
-  }
-
-  function startExec(exec, next) {
-    exec.start({stream: true}, next);
-  }
-
-  function waitExec(stream, next) {
-    docker.modem.demuxStream(stream, through(dot), process.stdout);
-    stream.on('end', function() {
-      if (dot.written) {
-        console.log('done');
-      }
-    });
-    stream.on('end', next);
-    stream.on('error', next);
-
-    function dot() {
-      dot.written = true;
-      process.stdout.write('.');
+    function runCmd(next) {
+      console.log('[%s]%s RUN %s', containerId,
+                  containerId === 'build' ? ' ' : '',
+                  cmd.join(' '));
+      exec.simple(containers[containerId], cmd, next);
     }
   }
 }
