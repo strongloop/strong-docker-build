@@ -151,83 +151,80 @@ function buildDeployImage(opts, callback) {
       Cmd: [],
       Image: preDeployImg,
     };
-    var tarXstream = null;
-    var tarCstream = null;
     var bytes = 0;
-    var tarPipe = through(function encode(d) {
+    var tarPipe = through(function inc(d) {
       bytes += d.length;
       this.queue(d);
-    }, function() {
+    }, function report() {
       console.log('[build]  bytes read: %d', bytes);
       this.queue(null);
     });
-    async.series([
-      createTarX,
-      attachTarX,
-      startTarX,
-      startTarC,
-      pipeStreams,
+
+    return async.series([
+      injectBuild,
+      extractBuild,
       wait,
     ], next);
 
-    function createTarX(next) {
-      docker.createContainer(tarx, function(err, c) {
-        containers.deploy = c;
-        next(err);
-      });
+    function injectBuild(next) {
+      async.waterfall([
+        createTarX,
+        attachTarX,
+        startTarX,
+      ], next);
     }
 
-    function attachTarX(next) {
+    function extractBuild(next) {
+      async.waterfall([
+        createTarC,
+        startTarC,
+        captureTarC,
+      ], next);
+    }
+
+    function createTarX(next) {
+      docker.createContainer(tarx, next);
+    }
+
+    function attachTarX(c, next) {
+      containers.deploy = c;
       var attachOpts = {
         stdin: true,
         stdout: true,
         stderr: true,
         stream: true,
       };
-      containers.deploy.attach(attachOpts, function(err, stream) {
-        if (err) {
-          return next(err);
-        }
-        tarXstream = stream;
-        var count = 0;
-        var counter = through(function(d) {
-          count += d.toString().split('\n').length - 1;
-        }, function() {
-          console.log('[deploy] files written: %d', count);
-        });
-        console.log('[deploy] injecting build results');
-        docker.modem.demuxStream(tarXstream, counter, process.stdout);
-        tarXstream._output.on('end', function() {
-          counter.end();
-        });
-        next();
-      });
+      containers.deploy.attach(attachOpts, next);
     }
 
-    function startTarX(next) {
+    function startTarX(stream, next) {
+      var count = 0;
+      var counter = through(function(d) {
+        count += d.toString().split('\n').length - 1;
+      }, function() {
+        console.log('[deploy] files written: %d', count);
+      });
+      console.log('[deploy] injecting build results');
+      docker.modem.demuxStream(stream, counter, process.stdout);
+      stream._output.on('end', function() {
+        counter.end();
+      });
+      tarPipe.pipe(stream.req);
       containers.deploy.start(tarx, next);
     }
 
-    function startTarC(next) {
-      containers.build.exec(tarc, function(err, exec) {
-        if (err) {
-          return next(err);
-        }
-        exec.start(tarc, function(err, stream) {
-          if (err) {
-            return next(err);
-          }
-          console.log('[build]  extracting build results');
-          tarCstream = stream;
-          docker.modem.demuxStream(tarCstream, tarPipe, process.stdout);
-          next();
-        });
-      });
+    function createTarC(next) {
+      containers.build.exec(tarc, next);
     }
 
-    function pipeStreams(next) {
-      tarPipe.pipe(tarXstream.req);
-      tarCstream.on('end', function() {
+    function startTarC(exec, next) {
+      exec.start(tarc, next);
+    }
+
+    function captureTarC(stream, next) {
+      console.log('[build]  extracting build results');
+      docker.modem.demuxStream(stream, tarPipe, process.stdout);
+      stream.on('end', function() {
         tarPipe.end();
       });
       next();
