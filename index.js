@@ -5,7 +5,6 @@ var fnpm = require('fstream-npm');
 var image = require('./lib/image');
 var path = require('path');
 var tar = require('tar');
-var through = require('through');
 
 exports.buildDeployImage = buildDeployImage;
 
@@ -68,109 +67,16 @@ function buildDeployImage(opts, callback) {
   }
 
   function copyBuildToDeploy(next) {
-    var tarc = {
-      AttachStdout: true,
-      AttachStderr: true,
-      Cmd: [
-        'tar', '-cf-', '-C', '/',
-        'app',
-        'usr/local/bin/node',
-        'usr/local/bin/sl-run',
-        'usr/local/lib/node_modules/strong-supervisor',
-      ],
-    };
-    var tarx = {
-      AttachStdout: true,
-      AttachStderr: true,
-      AttachStdin: true,
-      OpenStdin: true,
-      StdinOnce: true,
-      Entrypoint: ['tar', '-C', '/', '-xvpf-'],
-      Cmd: [],
-      Image: preDeployImg,
-    };
-    var bytes = 0;
-    var tarPipe = through(function inc(d) {
-      bytes += d.length;
-      this.queue(d);
-    }, function report() {
-      console.log('[build]  bytes read: %d', bytes);
-      this.queue(null);
-    });
-
-    return async.series([
-      injectBuild,
-      extractBuild,
-      wait,
-    ], next);
-
-    function injectBuild(next) {
-      async.waterfall([
-        createTarX,
-        attachTarX,
-        startTarX,
-      ], next);
-    }
-
-    function extractBuild(next) {
-      async.waterfall([
-        createTarC,
-        startTarC,
-        captureTarC,
-      ], next);
-    }
-
-    function createTarX(next) {
-      docker.createContainer(tarx, next);
-    }
-
-    function attachTarX(c, next) {
+    var paths = [
+      'app',
+      'usr/local/bin/node',
+      'usr/local/bin/sl-run',
+      'usr/local/lib/node_modules/strong-supervisor',
+    ];
+    image.copy(containers.build, paths, preDeployImg, function(err, c) {
       containers.deploy = c;
-      var attachOpts = {
-        stdin: true,
-        stdout: true,
-        stderr: true,
-        stream: true,
-      };
-      containers.deploy.attach(attachOpts, next);
-    }
-
-    function startTarX(stream, next) {
-      var count = 0;
-      var counter = through(function(d) {
-        count += d.toString().split('\n').length - 1;
-      }, function() {
-        console.log('[deploy] files written: %d', count);
-      });
-      console.log('[deploy] injecting build results');
-      docker.modem.demuxStream(stream, counter, process.stdout);
-      stream._output.on('end', function() {
-        counter.end();
-      });
-      tarPipe.pipe(stream.req);
-      containers.deploy.start(tarx, next);
-    }
-
-    function createTarC(next) {
-      containers.build.exec(tarc, next);
-    }
-
-    function startTarC(exec, next) {
-      exec.start(tarc, next);
-    }
-
-    function captureTarC(stream, next) {
-      console.log('[build]  extracting build results');
-      docker.modem.demuxStream(stream, tarPipe, process.stdout);
-      stream.on('end', function() {
-        tarPipe.end();
-      });
-      next();
-    }
-
-    function wait(next) {
-      containers.deploy.wait(next);
-    }
+      next(err);
+    });
   }
 
   function commitDeployContainer(next) {
