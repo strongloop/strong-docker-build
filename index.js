@@ -32,16 +32,7 @@ function buildDeployImage(opts, callback) {
 
   return async.series([
     IMAGE('debian:jessie', ['useradd', '-m', 'strongloop']),
-    createBuildContainer, startBuildContainer,
-    RUN('build', ['mkdir', '-p', '/app']),
-    ADD('build', opts.appRoot, '/app'),
-    RUN('build', ['useradd', '-m', 'strongloop']),
-    RUN('build',
-      ['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
-    RUN('build', ['su', 'strongloop', '-c',
-                  'npm install -g --no-spin strong-supervisor']),
-    RUN('build', ['su', 'strongloop', '-c',
-                  'cd /app && npm install --no-spin --production']),
+    createBuild,
     copyBuildToDeploy,
     commitDeployContainer,
     cleanupBuild, cleanupDeploy,
@@ -49,21 +40,72 @@ function buildDeployImage(opts, callback) {
     callback(err, result);
   });
 
-  function createBuildContainer(next) {
-    var opts = {
-      Image: 'node:latest',
-      Cmd: ['sleep', '1000'],
-      Env: env,
-    };
-    console.log('[build]  FROM %s', opts.Image);
-    docker.createContainer(opts, function(err, c) {
-      containers.build = c;
-      next(err);
-    });
-  }
+  function createBuild(next) {
+    var container = null;
+    async.waterfall([
+      create,
+      start,
+      RUN(['mkdir', '-p', '/app']),
+      ADD(opts.appRoot, '/app'),
+      RUN(['useradd', '-m', 'strongloop']),
+      RUN(['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
+      RUN(as('strongloop', 'npm install -g --no-spin strong-supervisor')),
+      RUN(as('strongloop', 'cd /app && npm install --no-spin --production')),
+    ], next);
 
-  function startBuildContainer(next) {
-    containers.build.start(next);
+    function create(next) {
+      var opts = {
+        Image: 'node:latest',
+        Cmd: ['sleep', '1000'],
+        Env: env,
+      };
+      console.log('[build] FROM %s', opts.Image);
+      docker.createContainer(opts, next);
+    }
+
+    function start(c, next) {
+      containers.build = container = c;
+      c.start(function(err) {
+        next(err); // drop result argument so RUN doesn't have to handle it
+      });
+    }
+
+    function RUN(cmd) {
+      return runCmd;
+
+      function runCmd(next) {
+        console.log('[build] RUN %s', cmd.join(' '));
+        exec.simple(container, cmd, next);
+      }
+    }
+
+    function ADD(src, dst) {
+      return addApp;
+
+      function addApp(next) {
+        var cmd = ['tar', '-C', dst, '--strip-components', '1', '-xvf-'];
+        var pkgStreamOpts = {
+          path: path.resolve(src),
+          type: 'Directory',
+          isDirectory: true,
+        };
+        console.log('[build] ADD %s /app', src);
+        exec.streamIn(container, cmd, function(err, stream) {
+          if (err) {
+            return next(err);
+          }
+          // mimic 'npm pack'
+          fnpm(pkgStreamOpts)
+            .pipe(tar.Pack())
+            .pipe(stream)
+            .on('end', next);
+        });
+      }
+    }
+
+    function as(user, cmd) {
+      return ['su', user, '-c', cmd];
+    }
   }
 
   function copyBuildToDeploy(next) {
@@ -121,41 +163,6 @@ function buildDeployImage(opts, callback) {
 
   function cleanupDeploy(next) {
     containers.deploy.remove({v: true, force: true}, next);
-  }
-
-  function RUN(containerId, cmd) {
-    return runCmd;
-
-    function runCmd(next) {
-      console.log('[%s]%s RUN %s', containerId,
-                  containerId === 'build' ? ' ' : '',
-                  cmd.join(' '));
-      exec.simple(containers[containerId], cmd, next);
-    }
-  }
-
-  function ADD(containerId, src, dst) {
-    return addApp;
-
-    function addApp(next) {
-      var cmd = ['tar', '-C', dst, '--strip-components', '1', '-xvf-'];
-      var pkgStreamOpts = {
-        path: path.resolve(src),
-        type: 'Directory',
-        isDirectory: true,
-      };
-      console.log('[%s]  ADD %s /app', containerId, src);
-      exec.streamIn(containers[containerId], cmd, function(err, stream) {
-        if (err) {
-          return next(err);
-        }
-        // mimic 'npm pack'
-        fnpm(pkgStreamOpts)
-          .pipe(tar.Pack())
-          .pipe(stream)
-          .on('end', next);
-      });
-    }
   }
 
   function IMAGE(img, cmd) {
