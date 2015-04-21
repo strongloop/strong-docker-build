@@ -13,10 +13,12 @@ function buildDeployImage(opts, callback) {
   var buildContainer = null;
   var deployContainer = null;
   var deployImage = null;
+  var buildDetails = null;
 
   return async.series([
     createPreDeploy,
     createBuild,
+    inspectBuild,
     copyBuildToDeploy,
     commitDeployContainer,
     cleanupBuild, cleanupDeploy,
@@ -76,6 +78,13 @@ function buildDeployImage(opts, callback) {
     }
   }
 
+  function inspectBuild(next) {
+    buildContainer.inspect(function(err, details) {
+      buildDetails = details;
+      next(err);
+    });
+  }
+
   function createPreDeploy(next) {
     var baseImage = 'debian:jessie';
     var cmd = ['useradd', '-m', 'strongloop'];
@@ -109,7 +118,9 @@ function buildDeployImage(opts, callback) {
       Env: [
         'PORT=3000',
         'STRONGLOOP_CLUSTER=CPU',
-      ],
+      ].concat(buildDetails.Config.Env.filter(function(e) {
+        return /NODE_VERSION/.test(e);
+      })),
       ExposedPorts: {
         '8700/tcp': {},
         '3000/tcp': {},
