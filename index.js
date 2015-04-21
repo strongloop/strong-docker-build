@@ -40,9 +40,9 @@ function buildDeployImage(opts, callback) {
 
   function createBuild(next) {
     var container = null;
-    async.waterfall([
-      create,
-      start,
+
+    return async.waterfall([
+      FROM('node:latest'),
       RUN(['mkdir', '-p', '/app']),
       ADD(opts.appRoot, '/app'),
       RUN(['useradd', '-m', 'strongloop']),
@@ -51,21 +51,27 @@ function buildDeployImage(opts, callback) {
       RUN(as('strongloop', 'cd /app && npm install --no-spin --production')),
     ], next);
 
-    function create(next) {
-      var opts = {
-        Image: 'node:latest',
-        Cmd: ['sleep', '1000'],
-        Env: env,
-      };
-      console.log('[build] FROM %s', opts.Image);
-      docker.createContainer(opts, next);
-    }
+    function FROM(baseImage) {
+      return startAndCreate;
 
-    function start(c, next) {
-      containers.build = container = c;
-      c.start(function(err) {
-        next(err); // drop result argument so RUN doesn't have to handle it
-      });
+      function startAndCreate(next) {
+        console.log('[build] FROM %s', baseImage);
+        async.waterfall([create, start], next);
+      }
+
+      function create(next) {
+        var opts = {
+          Image: baseImage,
+          Cmd: ['sleep', '1000'],
+          Env: env,
+        };
+        docker.createContainer(opts, next);
+      }
+
+      function start(c, next) {
+        containers.build = container = c;
+        c.start(next);
+      }
     }
 
     function RUN(cmd) {
