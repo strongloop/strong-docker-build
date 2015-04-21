@@ -1,4 +1,3 @@
-var Docker = require('dockerode');
 var async = require('async');
 var exec = require('./lib/exec');
 var image = require('./lib/image');
@@ -7,7 +6,6 @@ var path = require('path');
 exports.buildDeployImage = buildDeployImage;
 
 function buildDeployImage(opts, callback) {
-  var docker = opts.docker || new Docker();
   var containers = {
     build: null,
     deploy: null,
@@ -54,21 +52,10 @@ function buildDeployImage(opts, callback) {
 
       function startAndCreate(next) {
         console.log('[build] FROM %s', baseImage);
-        async.waterfall([create, start], next);
-      }
-
-      function create(next) {
-        var opts = {
-          Image: baseImage,
-          Cmd: ['sleep', '1000'],
-          Env: env,
-        };
-        docker.createContainer(opts, next);
-      }
-
-      function start(c, next) {
-        containers.build = container = c;
-        c.start(next);
+        image.start(baseImage, env, function(err, c) {
+          containers.build = container = c;
+          next(err);
+        });
       }
     }
 
