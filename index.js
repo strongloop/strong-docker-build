@@ -6,23 +6,13 @@ var path = require('path');
 exports.buildDeployImage = buildDeployImage;
 
 function buildDeployImage(opts, callback) {
-  var containers = {
-    build: null,
-    deploy: null,
-  };
   var app = require(path.resolve(opts.appRoot, 'package.json'));
   var repo = extractRepoName(opts.imgName, 'sl-docker-run/' + app.name);
   var tag = extractTagName(opts.imgName, app.version);
-  var result = {
-    name: repo + ':' + tag,
-    id: null
-  };
-  var preDeployImg = null;
-  var env = [];
-
-  if (process.env.npm_config_registry) {
-    env.push('npm_config_registry=' + process.env.npm_config_registry);
-  }
+  var preDeployImage = null;
+  var buildContainer = null;
+  var deployContainer = null;
+  var deployImage = null;
 
   return async.series([
     createPreDeploy,
@@ -31,11 +21,15 @@ function buildDeployImage(opts, callback) {
     commitDeployContainer,
     cleanupBuild, cleanupDeploy,
   ], function(err) {
-    callback(err, result);
+    callback(err, {name: repo + ':' + tag, id: deployImage});
   });
 
   function createBuild(next) {
     var container = null;
+    var env = [];
+    if (process.env.npm_config_registry) {
+      env.push('npm_config_registry=' + process.env.npm_config_registry);
+    }
 
     return async.series([
       FROM('node:latest'),
@@ -53,7 +47,7 @@ function buildDeployImage(opts, callback) {
       function startAndCreate(next) {
         console.log('[build] FROM %s', baseImage);
         image.start(baseImage, env, function(err, c) {
-          containers.build = container = c;
+          buildContainer = container = c;
           next(err);
         });
       }
@@ -86,7 +80,7 @@ function buildDeployImage(opts, callback) {
     var baseImage = 'debian:jessie';
     var cmd = ['useradd', '-m', 'strongloop'];
     image.singleLayer(baseImage, cmd, function(err, res) {
-      preDeployImg = res && res.Id;
+      preDeployImage = res && res.Id;
       next(err);
     });
   }
@@ -99,33 +93,27 @@ function buildDeployImage(opts, callback) {
       'usr/local/lib/node_modules/strong-supervisor',
     ];
     console.log('Copying build results from build container to final image');
-    image.copy(containers.build, paths, preDeployImg, function(err, c, counts) {
+    image.copy(buildContainer, paths, preDeployImage, function(err, c, counts) {
       console.log('Bytes read: %d', counts && counts.bytes);
       console.log('Files written: %d', counts && counts.files);
-      containers.deploy = c;
+      deployContainer = c;
       next(err);
     });
   }
 
   function commitDeployContainer(next) {
     var imgConfig = {
-      // FROM debian:jessie
       Image: 'debian:jessie',
-      // USER strongloop
       User: 'strongloop',
-      // WORKDIR /app
       WorkingDir: '/app',
-      // ENV PORT=3000
       Env: [
         'PORT=3000',
         'STRONGLOOP_CLUSTER=CPU',
       ],
-      // EXPOSE 8700 3000
       ExposedPorts: {
         '8700/tcp': {},
         '3000/tcp': {},
       },
-      // ENTRYPOINT ["/usr/local/bin/sl-run", "--control", "8700"]
       Entrypoint: [
         '/usr/local/bin/sl-run', '--control', '8700',
       ],
@@ -135,22 +123,22 @@ function buildDeployImage(opts, callback) {
       author: 'strong-docker-build@' + require('./package.json').version,
     };
     console.log('[deploy] commiting: %s as %s:%s',
-                containers.deploy.id.slice(0, 12),
+                deployContainer.id.slice(0, 12),
                 imgConfig.repo, imgConfig.tag);
-    containers.deploy.commit(imgConfig, function(err, res) {
-      result.id = res && res.Id;
+    deployContainer.commit(imgConfig, function(err, res) {
+      deployImage = res && res.Id;
       next(err);
     });
   }
 
   function cleanupBuild(next) {
     console.log('[build] removing container');
-    containers.build.remove({v: true, force: true}, next);
+    buildContainer.remove({v: true, force: true}, next);
   }
 
   function cleanupDeploy(next) {
     console.log('[deploy] removing container');
-    containers.deploy.remove({v: true, force: true}, next);
+    deployContainer.remove({v: true, force: true}, next);
   }
 }
 
