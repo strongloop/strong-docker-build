@@ -31,7 +31,7 @@ function buildDeployImage(opts, callback) {
   }
 
   return async.series([
-    IMAGE('debian:jessie', ['useradd', '-m', 'strongloop']),
+    createPreDeploy,
     createBuild,
     copyBuildToDeploy,
     commitDeployContainer,
@@ -108,6 +108,15 @@ function buildDeployImage(opts, callback) {
     }
   }
 
+  function createPreDeploy(next) {
+    var baseImage = 'debian:jessie';
+    var cmd = ['useradd', '-m', 'strongloop'];
+    image.singleLayer(baseImage, cmd, function(err, res) {
+      preDeployImg = res && res.Id;
+      next(err);
+    });
+  }
+
   function copyBuildToDeploy(next) {
     var paths = [
       'app',
@@ -163,16 +172,5 @@ function buildDeployImage(opts, callback) {
 
   function cleanupDeploy(next) {
     containers.deploy.remove({v: true, force: true}, next);
-  }
-
-  function IMAGE(img, cmd) {
-    return makeImage;
-
-    function makeImage(next) {
-      image.singleLayer(img, cmd, function(err, res) {
-        preDeployImg = res && res.Id;
-        next(err);
-      });
-    }
   }
 }
