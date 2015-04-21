@@ -1,10 +1,8 @@
 var Docker = require('dockerode');
 var async = require('async');
 var exec = require('./lib/exec');
-var fnpm = require('fstream-npm');
 var image = require('./lib/image');
 var path = require('path');
-var tar = require('tar');
 
 exports.buildDeployImage = buildDeployImage;
 
@@ -41,7 +39,7 @@ function buildDeployImage(opts, callback) {
   function createBuild(next) {
     var container = null;
 
-    return async.waterfall([
+    return async.series([
       FROM('node:latest'),
       RUN(['mkdir', '-p', '/app']),
       ADD(opts.appRoot, '/app'),
@@ -87,23 +85,8 @@ function buildDeployImage(opts, callback) {
       return addApp;
 
       function addApp(next) {
-        var cmd = ['tar', '-C', dst, '--strip-components', '1', '-xvf-'];
-        var pkgStreamOpts = {
-          path: path.resolve(src),
-          type: 'Directory',
-          isDirectory: true,
-        };
-        console.log('[build] ADD %s /app', src);
-        exec.streamIn(container, cmd, function(err, stream) {
-          if (err) {
-            return next(err);
-          }
-          // mimic 'npm pack'
-          fnpm(pkgStreamOpts)
-            .pipe(tar.Pack())
-            .pipe(stream)
-            .on('end', next);
-        });
+        console.log('[build] ADD %s %s', path.relative('.', src), dst);
+        exec.addApp(container, src, dst, next);
       }
     }
 
