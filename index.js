@@ -98,7 +98,10 @@ function buildDeployImage(opts, callback) {
       'usr/local/bin/sl-run',
       'usr/local/lib/node_modules/strong-supervisor',
     ];
-    image.copy(containers.build, paths, preDeployImg, function(err, c) {
+    console.log('Copying build results from build container to final image');
+    image.copy(containers.build, paths, preDeployImg, function(err, c, counts) {
+      console.log('Bytes read: %d', counts && counts.bytes);
+      console.log('Files written: %d', counts && counts.files);
       containers.deploy = c;
       next(err);
     });
@@ -141,10 +144,12 @@ function buildDeployImage(opts, callback) {
   }
 
   function cleanupBuild(next) {
+    console.log('[build] removing container');
     containers.build.remove({v: true, force: true}, next);
   }
 
   function cleanupDeploy(next) {
+    console.log('[deploy] removing container');
     containers.deploy.remove({v: true, force: true}, next);
   }
 }
