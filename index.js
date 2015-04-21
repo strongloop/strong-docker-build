@@ -2,6 +2,7 @@ var Docker = require('dockerode');
 var async = require('async');
 var exec = require('./lib/exec');
 var fnpm = require('fstream-npm');
+var image = require('./lib/image');
 var path = require('path');
 var tar = require('tar');
 var through = require('through');
@@ -12,7 +13,6 @@ function buildDeployImage(opts, callback) {
   var docker = opts.docker || new Docker();
   var containers = {
     build: null,
-    preDeploy: null,
     deploy: null,
   };
   var app = require(path.resolve(opts.appRoot, 'package.json'));
@@ -32,8 +32,8 @@ function buildDeployImage(opts, callback) {
   }
 
   return async.series([
+    IMAGE('debian:jessie', ['useradd', '-m', 'strongloop']),
     createBuildContainer, startBuildContainer,
-    createPreDeployContainer, commitPreDeployContainer,
     RUN('build', ['mkdir', '-p', '/app']),
     ADD('build', opts.appRoot, '/app'),
     RUN('build', ['useradd', '-m', 'strongloop']),
@@ -45,7 +45,7 @@ function buildDeployImage(opts, callback) {
                   'cd /app && npm install --no-spin --production']),
     copyBuildToDeploy,
     commitDeployContainer,
-    cleanupBuild, cleanupDeploy, cleanupPreDeploy,
+    cleanupBuild, cleanupDeploy,
   ], function(err) {
     callback(err, result);
   });
@@ -60,20 +60,6 @@ function buildDeployImage(opts, callback) {
     docker.createContainer(opts, function(err, c) {
       containers.build = c;
       next(err);
-    });
-  }
-  function createPreDeployContainer(next) {
-    var opts = {
-      Image: 'debian:jessie',
-      Entrypoint: ['useradd', '-m', 'strongloop'],
-      Cmd: null,
-    };
-    docker.createContainer(opts, function(err, c) {
-      if (err) {
-        return next(err);
-      }
-      containers.preDeploy = c;
-      c.start({}, next);
     });
   }
 
@@ -187,22 +173,6 @@ function buildDeployImage(opts, callback) {
     }
   }
 
-  function commitPreDeployContainer(next) {
-    var imgConfig = {
-      comment: 'Built by strong-docker-build',
-      author: 'strong-docker-build@' + require('./package.json').version,
-    };
-    containers.preDeploy.wait(function(err) {
-      if (err) {
-        return next(err);
-      }
-      containers.preDeploy.commit(imgConfig, function(err, res) {
-        preDeployImg = res && res.Id;
-        next(err);
-      });
-    });
-  }
-
   function commitDeployContainer(next) {
     var imgConfig = {
       // FROM debian:jessie
@@ -247,10 +217,6 @@ function buildDeployImage(opts, callback) {
     containers.deploy.remove({v: true, force: true}, next);
   }
 
-  function cleanupPreDeploy(next) {
-    containers.preDeploy.remove({v: true, force: true}, next);
-  }
-
   function RUN(containerId, cmd) {
     return runCmd;
 
@@ -282,6 +248,17 @@ function buildDeployImage(opts, callback) {
           .pipe(tar.Pack())
           .pipe(stream)
           .on('end', next);
+      });
+    }
+  }
+
+  function IMAGE(img, cmd) {
+    return makeImage;
+
+    function makeImage(next) {
+      image.singleLayer(img, cmd, function(err, res) {
+        preDeployImg = res && res.Id;
+        next(err);
       });
     }
   }
