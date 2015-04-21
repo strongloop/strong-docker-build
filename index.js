@@ -15,10 +15,8 @@ function buildDeployImage(opts, callback) {
     deploy: null,
   };
   var app = require(path.resolve(opts.appRoot, 'package.json'));
-  var repo = opts.imgName && opts.imgName.split(':')[0]
-                          || ('sl-docker-run/' + app.name);
-  var tag = opts.imgName && opts.imgName.split(':')[1]
-                         || app.version;
+  var repo = extractRepoName(opts.imgName, 'sl-docker-run/' + app.name);
+  var tag = extractTagName(opts.imgName, app.version);
   var result = {
     name: repo + ':' + tag,
     id: null
@@ -173,4 +171,14 @@ function buildDeployImage(opts, callback) {
   function cleanupDeploy(next) {
     containers.deploy.remove({v: true, force: true}, next);
   }
+}
+
+function extractRepoName(imgName, dflt) {
+  var repo = imgName && imgName.split(':')[0];
+  return repo || dflt;
+}
+
+function extractTagName(imgName, dflt) {
+  var tag = imgName && imgName.split(':')[1];
+  return tag || dflt;
 }
