@@ -5,14 +5,14 @@ var path = require('path');
 
 var opts = {
   appRoot: path.resolve(process.argv[2] || '.'),
-  imgName: process.argv[3] || 'strongloop/strong-app:slim',
+  imgName: process.argv[3],
 };
 
-builder.buildSlimImage(opts, function(err, imgName) {
+builder.buildDeployImage(opts, function(err, res) {
   if (err) {
     console.error('Failed to build image:', err);
     process.exit(1);
   } else {
-    console.log('Image created:', imgName);
+    console.log('Image created:', res);
   }
 });
