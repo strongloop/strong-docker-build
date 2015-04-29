@@ -28,20 +28,35 @@ function buildDeployImage(opts, callback) {
 
   function createBuild(next) {
     var container = null;
-    var env = [];
+    var env = ['npm_config_spin=false'];
     if (process.env.npm_config_registry) {
       env.push('npm_config_registry=' + process.env.npm_config_registry);
     }
-
-    return async.series([
+    var steps = [
       FROM('node:latest'),
       RUN(['mkdir', '-p', '/app']),
       ADD(opts.appRoot, '/app'),
       RUN(['useradd', '-m', 'strongloop']),
       RUN(['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
-      RUN(as('strongloop', 'npm install -g --no-spin strong-supervisor')),
-      RUN(as('strongloop', 'cd /app && npm install --no-spin --production')),
-    ], next);
+      RUN(as('strongloop', 'cd /app && npm install --production')),
+    ];
+
+    var installStrongSupervisor = [
+      RUN(as('strongloop', 'npm install -g strong-supervisor')),
+    ];
+    var installCustomSupervisor = [
+      RUN(['mkdir', '-p', '/supervisor']),
+      ADD(opts.supervisor, '/supervisor'),
+      RUN(as('strongloop', 'npm install -g /supervisor')),
+    ];
+
+    if (opts.supervisor) {
+      steps = steps.concat(installCustomSupervisor);
+    } else {
+      steps = steps.concat(installStrongSupervisor);
+    }
+
+    return async.series(steps, next);
 
     function FROM(baseImage) {
       return startAndCreate;
