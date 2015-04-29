@@ -1,5 +1,6 @@
 var async = require('async');
 var exec = require('./lib/exec');
+var fmt = require('util').format;
 var image = require('./lib/image');
 var path = require('path');
 
@@ -9,6 +10,7 @@ function buildDeployImage(opts, callback) {
   var app = require(path.resolve(opts.appRoot, 'package.json'));
   var repo = extractRepoName(opts.imgName, 'sl-docker-run/' + app.name);
   var tag = extractTagName(opts.imgName, app.version);
+  var nodeVersion = opts.nodeVersion || '0.10';
   var preDeployImage = null;
   var buildContainer = null;
   var deployContainer = null;
@@ -33,7 +35,7 @@ function buildDeployImage(opts, callback) {
       env.push('npm_config_registry=' + process.env.npm_config_registry);
     }
     var steps = [
-      FROM('node:latest'),
+      FROM(fmt('node:%s', nodeVersion)),
       RUN(['mkdir', '-p', '/app']),
       ADD(opts.appRoot, '/app'),
       RUN(['useradd', '-m', 'strongloop']),
