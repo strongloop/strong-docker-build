@@ -1,5 +1,6 @@
 var async = require('async');
 var exec = require('./lib/exec');
+var fmt = require('util').format;
 var image = require('./lib/image');
 var path = require('path');
 
@@ -9,6 +10,7 @@ function buildDeployImage(opts, callback) {
   var app = require(path.resolve(opts.appRoot, 'package.json'));
   var repo = extractRepoName(opts.imgName, 'sl-docker-run/' + app.name);
   var tag = extractTagName(opts.imgName, app.version);
+  var nodeVersion = opts.nodeVersion || '0.10';
   var preDeployImage = null;
   var buildContainer = null;
   var deployContainer = null;
@@ -28,20 +30,35 @@ function buildDeployImage(opts, callback) {
 
   function createBuild(next) {
     var container = null;
-    var env = [];
+    var env = ['npm_config_spin=false'];
     if (process.env.npm_config_registry) {
       env.push('npm_config_registry=' + process.env.npm_config_registry);
     }
-
-    return async.series([
-      FROM('node:latest'),
+    var steps = [
+      FROM(fmt('node:%s', nodeVersion)),
       RUN(['mkdir', '-p', '/app']),
       ADD(opts.appRoot, '/app'),
       RUN(['useradd', '-m', 'strongloop']),
       RUN(['chown', '-R', 'strongloop:strongloop', '/app', '/usr/local']),
-      RUN(as('strongloop', 'npm install -g --no-spin strong-supervisor')),
-      RUN(as('strongloop', 'cd /app && npm install --no-spin --production')),
-    ], next);
+      RUN(as('strongloop', 'cd /app && npm install --production')),
+    ];
+
+    var installStrongSupervisor = [
+      RUN(as('strongloop', 'npm install -g strong-supervisor')),
+    ];
+    var installCustomSupervisor = [
+      RUN(['mkdir', '-p', '/supervisor']),
+      ADD(opts.supervisor, '/supervisor'),
+      RUN(as('strongloop', 'npm install -g /supervisor')),
+    ];
+
+    if (opts.supervisor) {
+      steps = steps.concat(installCustomSupervisor);
+    } else {
+      steps = steps.concat(installStrongSupervisor);
+    }
+
+    return async.series(steps, next);
 
     function FROM(baseImage) {
       return startAndCreate;
