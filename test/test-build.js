@@ -1,16 +1,15 @@
 var builder = require('../');
-var Docker = require('dockerode');
+var docker = require('../lib/lazy-docker');
 var path = require('path');
 var tap = require('tap');
 
 var appRoot = path.resolve(__dirname, 'sample-app');
-var docker = new Docker();
 var builtImage = null;
 
 tap.test('node base image', {timeout: 90000}, function(t) {
-  docker.pull('node:0.10', {repo: 'node'}, function(err, stream) {
+  docker().pull('node:0.10', {repo: 'node'}, function(err, stream) {
     t.ifError(err, 'start pull node:latest without error');
-    docker.modem.followProgress(stream, function(err) {
+    docker().modem.followProgress(stream, function(err) {
       t.ifError(err, 'pull node:latest without error');
       t.end();
     });
@@ -18,9 +17,9 @@ tap.test('node base image', {timeout: 90000}, function(t) {
 });
 
 tap.test('debian:jessie base image', {timeout: 90000}, function(t) {
-  docker.pull('debian:jessie', {repo: 'debian'}, function(err, stream) {
+  docker().pull('debian:jessie', {repo: 'debian'}, function(err, stream) {
     t.ifError(err, 'start pull debian:jessie without error');
-    docker.modem.followProgress(stream, function(err) {
+    docker().modem.followProgress(stream, function(err) {
       t.ifError(err, 'finish pull debian:jessie without error');
       t.end();
     });
@@ -28,7 +27,7 @@ tap.test('debian:jessie base image', {timeout: 90000}, function(t) {
 });
 
 tap.test('remove existing default', function(t) {
-  var img = docker.getImage('sl-docker-run/test-app:0.0.0');
+  var img = docker().getImage('sl-docker-run/test-app:0.0.0');
   img.remove({force: true}, function() {
     t.ok(true, 'removed existing image if existed');
     t.end();
@@ -49,7 +48,8 @@ tap.test('wait for default image', function(t) {
 });
 
 tap.test('inspect image', function(t) {
-  docker.getImage('sl-docker-run/test-app:0.0.0').inspect(function(err, image) {
+  docker().getImage('sl-docker-run/test-app:0.0.0')
+          .inspect(function(err, image) {
     t.ifError(err, 'Image should be inspectable');
     builtImage = image;
     var cfg = image.Config;
@@ -63,7 +63,8 @@ tap.test('inspect image', function(t) {
 });
 
 tap.test('remove existing custom image', function(t) {
-  docker.getImage('strong-docker-build:test').remove({force: true}, function() {
+  docker().getImage('strong-docker-build:test')
+          .remove({force: true}, function() {
     t.ok(true, 'removed existing image if existed');
     t.end();
   });
@@ -84,7 +85,7 @@ tap.test('wait for  custom image', function(t) {
 });
 
 tap.test('inspect rebuilt image', function(t) {
-  docker.getImage('strong-docker-build:test').inspect(function(err, image) {
+  docker().getImage('strong-docker-build:test').inspect(function(err, image) {
     t.ifError(err, 'Rebuild image should be inspectable');
     t.ok(image.VirtualSize * 0.99999 < builtImage.VirtualSize &&
          image.VirtualSize * 1.00001 > builtImage.VirtualSize,
