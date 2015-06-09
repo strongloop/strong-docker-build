@@ -1,6 +1,6 @@
 {
   "name": "strong-docker-build",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Build a Docker image of an app run under strong-supervisor",
   "bin": {
     "sl-docker-build": "bin/sl-docker-build.js"
