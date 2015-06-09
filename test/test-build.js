@@ -8,9 +8,9 @@ var builtImage = null;
 
 tap.test('node base image', {timeout: 90000}, function(t) {
   docker().pull('node:0.10', {repo: 'node'}, function(err, stream) {
-    t.ifError(err, 'start pull node:latest without error');
+    t.ifError(err, 'start pull node:0.10 without error');
     docker().modem.followProgress(stream, function(err) {
-      t.ifError(err, 'pull node:latest without error');
+      t.ifError(err, 'pull node:0.10 without error');
       t.end();
     });
   });
