@@ -8,7 +8,7 @@
   "main": "index.js",
   "scripts": {
     "pretest": "eslint . && jscs .",
-    "test": "tap --timeout 300 test/test-*"
+    "test": "tap --coverage --coverage-report=cobertura --timeout 300 test/test-*"
   },
   "repository": {
     "type": "git",
