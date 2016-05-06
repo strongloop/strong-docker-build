@@ -1,3 +1,15 @@
+2016-05-06, Version 1.1.1
+=========================
+
+ * update copyright notices and license (Ryan Graham)
+
+ * Refer to licenses with a link (Sam Roberts)
+
+ * Use strongloop conventions for licensing (Sam Roberts)
+
+ * test: enable coverage reporting (Ryan Graham)
+
+
 2015-06-09, Version 1.1.0
 =========================
 
